@@ -562,7 +562,8 @@ function renderList(list) {
   const q = state.search.toLowerCase();
   const filtered = list.filter((t) =>
     matchFilter(t) &&
-    (t.label.toLowerCase().includes(q) || CATEGORIES[t.category].name.toLowerCase().includes(q))
+    // une opération masquée ne doit pas pouvoir être retrouvée en tapant son nom
+    ((!t.hidden && t.label.toLowerCase().includes(q)) || CATEGORIES[t.category].name.toLowerCase().includes(q))
   );
 
   $("#emptyState").classList.toggle("show", filtered.length === 0);
@@ -578,14 +579,17 @@ function renderList(list) {
     }
     const c = CATEGORIES[t.category];
     const sign = t.type === "income" ? "+" : "−";
-    html += `<li class="tx ${t.upcoming ? "upcoming" : ""}" data-id="${t.id}" style="--i:${Math.min(i, 15)}">
-      <div class="tx-icon" style="background:${c.color}22">${c.emoji}</div>
+    html += `<li class="tx ${t.upcoming ? "upcoming" : ""} ${t.hidden ? "masked" : ""}" data-id="${t.id}" style="--i:${Math.min(i, 15)}">
+      <div class="tx-icon" style="background:${c.color}22">${t.hidden ? "🔒" : c.emoji}</div>
       <div class="tx-info">
-        <strong>${escapeHTML(t.label)}</strong>
-        <span>${t.upcoming ? "⏳ à venir · " : ""}${c.name}${t.recurring ? " · 🔁 mensuel" : ""}${t.type === "expense" && settings.hourly > 0 ? " · ≈ " + jobTime(t.amount) + " de job" : ""}</span>
+        <strong>${t.hidden ? "Opération masquée" : escapeHTML(t.label)}</strong>
+        <span>${t.upcoming ? "⏳ à venir · " : ""}${c.name}${t.recurring ? " · 🔁 mensuel" : ""}${t.type === "expense" && settings.hourly > 0 && !t.hidden ? " · ≈ " + jobTime(t.amount) + " de job" : ""}</span>
       </div>
       <div class="tx-amount ${t.type}">${sign}${fmt(t.amount)}</div>
-      <button class="tx-del" title="Supprimer">✕</button>
+      <div class="tx-actions">
+        <button class="tx-hide">${t.hidden ? "Afficher" : "Masquer"}</button>
+        <button class="tx-del" title="Supprimer">✕</button>
+      </div>
     </li>`;
   });
   $("#txList").innerHTML = html;
@@ -611,11 +615,15 @@ function renderSubscriptions() {
     }
     if (toISO(next) < t.date) next = parseISO(t.date);
 
-    return `<li class="sub" data-id="${t.id}" style="--i:${i}" title="Cliquer pour modifier">
-      <div class="tx-icon" style="background:${c.color}22">${c.emoji}</div>
-      <div>${escapeHTML(t.label)}<small>le ${next.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</small></div>
-      <div class="sub-right">${t.type === "income" ? "+" : "−"}${fmt(t.amount)}
-        <button data-stop="${t.id}">Arrêter</button>
+    return `<li class="sub ${t.hidden ? "masked" : ""}" data-id="${t.id}" style="--i:${i}" title="Cliquer pour modifier">
+      <div class="tx-icon" style="background:${c.color}22">${t.hidden ? "🔒" : c.emoji}</div>
+      <div>${t.hidden ? "Opération masquée" : escapeHTML(t.label)}<small>le ${next.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</small></div>
+      <div class="sub-right">
+        <span class="sub-amount">${t.type === "income" ? "+" : "−"}${fmt(t.amount)}</span>
+        <div class="sub-btns">
+          <button class="hide-btn" data-hide="${t.id}">${t.hidden ? "Afficher" : "Masquer"}</button>
+          <button data-stop="${t.id}">Arrêter</button>
+        </div>
       </div>
     </li>`;
   });
@@ -737,6 +745,23 @@ function deleteTransaction(id, li) {
       render(false);
     });
   }, 300);
+}
+
+// Masquer / afficher une opération (le montant compte toujours dans les totaux)
+function toggleHidden(id) {
+  const t = transactions.find((x) => x.id === id);
+  t.hidden = !t.hidden;
+  save();
+  render(false);
+  toast(t.hidden ? "Opération masquée 🔒" : "Opération affichée", () => toggleHidden(id));
+}
+
+// Mode discret : floute tous les montants de la page (comme "masquer mon solde" des banques)
+function applyPrivacy(on) {
+  document.body.classList.toggle("privacy", on);
+  $("#privacyBtn").textContent = on ? "🙈" : "👁️";
+  $("#privacyBtn").title = on ? "Afficher les montants" : "Masquer les montants";
+  localStorage.setItem("financity_privacy", on ? "1" : "0");
 }
 
 function stopRecurring(id) {
@@ -904,7 +929,7 @@ function renderBudget() {
   if (!b.bourse) {
     $("#budgetNote").textContent = "Ajoute ta bourse en opération « Chaque mois » (catégorie 🎓 Bourse) pour compter jusqu'au prochain versement.";
   } else if (b.upcomingSum > 0) {
-    const names = [...new Set(b.upcoming.map((t) => t.label))];
+    const names = [...new Set(b.upcoming.map((t) => (t.hidden ? "opération masquée" : t.label)))];
     $("#budgetNote").textContent = `Déjà déduit : ${fmt(b.upcomingSum)} de prélèvements à venir (${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""}).`;
   } else {
     $("#budgetNote").textContent = "Aucun prélèvement mensuel avant la prochaine bourse.";
@@ -1411,6 +1436,7 @@ $("#goalDelete").onclick = () => {
 };
 
 // Réglages
+$("#privacyBtn").onclick = () => applyPrivacy(!document.body.classList.contains("privacy"));
 $("#settingsBtn").onclick = () => { openSettings(); updateBackupUI(); };
 $("#backupChoose").onclick = chooseBackupFolder;
 $("#backupReconnect").onclick = reconnectBackup;
@@ -1464,6 +1490,7 @@ $("#txList").addEventListener("click", (e) => {
   const li = e.target.closest(".tx");
   if (!li) return;
   if (e.target.closest(".tx-del")) deleteTransaction(li.dataset.id, li);
+  else if (e.target.closest(".tx-hide")) toggleHidden(li.dataset.id);
   else openForm(li.dataset.id);
 });
 
@@ -1482,6 +1509,7 @@ $("#search").addEventListener("input", (e) => {
 // Récurrents : "Arrêter" = stopper, clic ailleurs sur la ligne = modifier
 $("#subsList").addEventListener("click", (e) => {
   if (e.target.dataset.stop) return stopRecurring(e.target.dataset.stop);
+  if (e.target.dataset.hide) return toggleHidden(e.target.dataset.hide);
   const li = e.target.closest(".sub");
   if (li) openForm(li.dataset.id);
 });
@@ -1582,5 +1610,6 @@ window.addEventListener("resize", () => {
 // mode sombre par défaut (sauf si l'utilisateur a choisi le clair avant)
 applyTheme(localStorage.getItem("financity_theme") || "dark");
 movePill($("#viewSwitch"));
+applyPrivacy(localStorage.getItem("financity_privacy") === "1");
 render();
 initBackup();
