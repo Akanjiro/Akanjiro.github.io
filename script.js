@@ -34,10 +34,10 @@ const CATEGORIES = {
   autres:         { name: "Autres",         emoji: "📦", color: "#8e8e93", type: "expense" },
 };
 
-const STORAGE_KEY = "financity_tx";
-
-// Liste de toutes les opérations, sauvegardée dans le localStorage du navigateur
-let transactions = loadTransactions();
+// Toutes les opérations, les objectifs et les réglages (sauvegardés dans le localStorage)
+let transactions = loadJSON("financity_tx", []);
+let goals = loadJSON("financity_goals", []);
+let settings = { hourly: 10, bourse10: true, ...loadJSON("financity_settings", {}) };
 
 // État de l'interface (ce qui est affiché en ce moment)
 const state = {
@@ -50,20 +50,6 @@ const state = {
   editingId: null,      // id de l'opération modifiée (null = ajout)
 };
 
-// Objectifs d'épargne et réglages, eux aussi sauvegardés
-let goals = loadJSON("financity_goals", []);
-let settings = { hourly: 10, bourse10: true, ...loadJSON("financity_settings", {}) };
-
-let lastDeleted = null; // pour le bouton "Annuler" après une suppression
-
-function loadTransactions() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch (e) {
-    return [];
-  }
-}
-
 function loadJSON(key, fallback) {
   try {
     return JSON.parse(localStorage.getItem(key)) || fallback;
@@ -73,10 +59,10 @@ function loadJSON(key, fallback) {
 }
 
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+  localStorage.setItem("financity_tx", JSON.stringify(transactions));
   localStorage.setItem("financity_goals", JSON.stringify(goals));
   localStorage.setItem("financity_settings", JSON.stringify(settings));
-  scheduleBackup(); // + copie dans le dossier de sauvegarde (voir plus bas)
+  scheduleBackup(); // + copie dans le dossier de sauvegarde (partie 7)
 }
 
 // petit identifiant unique (date + aléatoire)
@@ -104,6 +90,8 @@ function parseISO(str) {
 }
 
 const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+// Date d'un prélèvement un mois donné (si le jour n'existe pas, ex : 31 février -> dernier jour du mois)
+const payDate = (y, m, day) => new Date(y, m, Math.min(day, daysInMonth(y, m)));
 const isSummer = (m) => m === 6 || m === 7; // juillet et août (les mois commencent à 0 en JS)
 const DAY = 24 * 60 * 60 * 1000;            // un jour en millisecondes
 const shortDate = (d) => d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
@@ -172,8 +160,7 @@ function getTransactions(start, end, includeFuture = false) {
 
     // on parcourt chaque mois de la période
     while (new Date(y, m, 1) <= end) {
-      // si le jour n'existe pas (ex : 31 février) on prend le dernier jour du mois
-      const occ = toISO(new Date(y, m, Math.min(day, daysInMonth(y, m))));
+      const occ = toISO(payDate(y, m, day));
       const stopped = t.endDate && occ > t.endDate;
       const future = occ > today && !includeFuture; // pas encore payé -> on ne le compte pas
       // bourse sur 10 mois : pas de versement en juillet (6) et août (7)
@@ -225,10 +212,12 @@ function setupCanvas(canvas) {
 /*
   Lance une animation : appelle draw(p) à chaque image avec p qui va de 0 à 1.
   On garde l'id de l'animation pour l'annuler si on redessine avant la fin.
+  animated = false : on dessine directement l'état final.
 */
 const runningAnims = {};
-function animate(key, draw, duration = 800) {
+function animate(key, draw, duration = 800, animated = true) {
   cancelAnimationFrame(runningAnims[key]);
+  if (!animated) return draw(1);
   const t0 = performance.now();
   function frame(now) {
     const p = Math.min((now - t0) / duration, 1);
@@ -242,6 +231,22 @@ function animate(key, draw, duration = 800) {
 const axisLabel = (v) => v >= 1000 ? (v / 1000).toFixed(1).replace(".", ",") + " k€" : Math.round(v) + " €";
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// Lignes horizontales + montants à gauche (commun aux 2 graphiques)
+function drawGrid(ctx, { w, padL, padR, max, yOf, muted }) {
+  ctx.font = "11px -apple-system, Inter, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.strokeStyle = "rgba(120,120,128,.15)";
+  ctx.fillStyle = muted;
+  for (let i = 0; i <= 4; i++) {
+    const v = (max / 4) * i, y = yOf(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText(axisLabel(v), padL - 8, y);
+  }
+  ctx.textAlign = "center"; // prêt pour les étiquettes du bas
+  ctx.textBaseline = "top";
+}
 
 // Infos du graphique gardées pour l'info-bulle au survol
 let chartGeo = null;
@@ -276,28 +281,12 @@ function drawLineChart(animated = true) {
   const xs = labels.map((_, i) => padL + i * step);
   const yOf = (v) => h - padB - (v / max) * (h - padT - padB);
 
-  chartGeo = { xs, labels, income, expense, padT, padB, h };
+  chartGeo = { xs, labels, income, expense };
   const muted = cssVar("--muted");
 
   function draw(p) {
     ctx.clearRect(0, 0, w, h);
-
-    // lignes horizontales + valeurs à gauche
-    ctx.font = "11px -apple-system, Inter, sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    for (let i = 0; i <= 4; i++) {
-      const v = (max / 4) * i;
-      const y = yOf(v);
-      ctx.strokeStyle = "rgba(120,120,128,.15)";
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-      ctx.fillStyle = muted;
-      ctx.fillText(axisLabel(v), padL - 8, y);
-    }
-
-    // étiquettes en bas
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    drawGrid(ctx, { w, padL, padR, max, yOf, muted });
     labels.forEach((l, i) => ctx.fillText(l, xs[i], h - padB + 10));
 
     // les 2 courbes (p fait "monter" la courbe pendant l'animation)
@@ -332,7 +321,6 @@ function drawLineChart(animated = true) {
     ctx.lineWidth = 2.5;
     ctx.stroke(path);
 
-    // petits points
     pts.forEach((pt) => {
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
@@ -341,8 +329,7 @@ function drawLineChart(animated = true) {
     });
   }
 
-  if (animated) animate("line", draw);
-  else draw(1);
+  animate("line", draw, 800, animated);
 }
 
 // Info-bulle quand la souris passe sur le graphique
@@ -376,7 +363,6 @@ function drawDonut(byCat, total, animated = true) {
     ctx.clearRect(0, 0, w, h);
     ctx.lineWidth = thick;
 
-    // anneau gris de fond
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = "rgba(120,120,128,.15)";
@@ -396,8 +382,7 @@ function drawDonut(byCat, total, animated = true) {
     }
   }
 
-  if (animated) animate("donut", draw, 900);
-  else draw(1);
+  animate("donut", draw, 900, animated);
 }
 
 
@@ -470,7 +455,6 @@ function render(animated = true) {
   const cur = totals(list);
   const prev = totals(getTransactions(prevRange.start, prevRange.end));
 
-  // Titre de la période
   const h1 = $("#periodLabel");
   h1.textContent = periodLabel();
   h1.classList.remove("swap");
@@ -478,7 +462,6 @@ function render(animated = true) {
   h1.classList.add("swap");
   $("#insight").textContent = buildInsight(cur, prev);
 
-  // Chiffres clés
   countUp($("#kpiBalance"), cur.balance);
   countUp($("#kpiIncome"), cur.income);
   countUp($("#kpiExpense"), cur.expense);
@@ -488,7 +471,7 @@ function render(animated = true) {
   setDelta($("#dExpense"), cur.expense, prev.expense, false);
   setDelta($("#dInvest"), cur.invest, prev.invest, true);
 
-  // Répartition par catégorie (dépenses uniquement)
+  // Répartition des dépenses par catégorie (pour le donut)
   const sums = {};
   list.filter((t) => t.type === "expense").forEach((t) => {
     sums[t.category] = (sums[t.category] || 0) + t.amount;
@@ -572,7 +555,6 @@ function renderList(list) {
   let html = "";
   let lastDate = "";
   filtered.forEach((t, i) => {
-    // un titre à chaque nouveau jour
     if (t.date !== lastDate && state.view !== "day") {
       lastDate = t.date;
       html += `<li class="day-head">${parseISO(t.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</li>`;
@@ -608,11 +590,8 @@ function renderSubscriptions() {
     // prochaine échéance : ce mois-ci si pas encore passée, sinon le mois prochain
     const now = new Date();
     const day = parseISO(t.date).getDate();
-    let next = new Date(now.getFullYear(), now.getMonth(), Math.min(day, daysInMonth(now.getFullYear(), now.getMonth())));
-    if (toISO(next) < today) {
-      next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      next.setDate(Math.min(day, daysInMonth(next.getFullYear(), next.getMonth())));
-    }
+    let next = payDate(now.getFullYear(), now.getMonth(), day);
+    if (toISO(next) < today) next = payDate(now.getFullYear(), now.getMonth() + 1, day);
     if (toISO(next) < t.date) next = parseISO(t.date);
 
     return `<li class="sub ${t.hidden ? "masked" : ""}" data-id="${t.id}" style="--i:${i}" title="Cliquer pour modifier">
@@ -735,12 +714,11 @@ function deleteTransaction(id, li) {
   li.classList.add("removing");
   // on attend la fin de l'animation avant de vraiment supprimer
   setTimeout(() => {
-    lastDeleted = t;
     transactions = transactions.filter((x) => x.id !== id);
     save();
     render(false);
     toast("Opération supprimée", () => {
-      transactions.push(lastDeleted);
+      transactions.push(t);
       save();
       render(false);
     });
@@ -754,6 +732,13 @@ function toggleHidden(id) {
   save();
   render(false);
   toast(t.hidden ? "Opération masquée 🔒" : "Opération affichée", () => toggleHidden(id));
+}
+
+// Thème clair / sombre (mémorisé)
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $("#themeBtn").textContent = theme === "dark" ? "☀️" : "🌙";
+  localStorage.setItem("financity_theme", theme);
 }
 
 // Mode discret : floute tous les montants de la page (comme "masquer mon solde" des banques)
@@ -811,7 +796,6 @@ function loadDemo() {
     if (Math.random() < 0.5) add("expense", "etudes", pick(["Livre", "Impressions", "Fournitures"]), rnd(5, 35), new Date(y, m, 4));
   }
 
-  // pas d'opérations dans le futur
   const today = toISO(now);
   transactions = list.filter((t) => t.recurring || t.date <= today);
   if (goals.length === 0) {
@@ -833,9 +817,6 @@ function getBourse() {
   const today = toISO(new Date());
   return transactions.find((t) => t.recurring && t.category === "bourse" && (!t.endDate || t.endDate >= today));
 }
-
-// Date de versement un mois donné (si le jour n'existe pas, dernier jour du mois)
-const payDate = (y, m, day) => new Date(y, m, Math.min(day, daysInMonth(y, m)));
 
 /*
   RESTE À VIVRE
@@ -906,8 +887,7 @@ function summerAdvice() {
     .filter((v) => v > 0);
   if (pastMonths.length === 0) return null;
 
-  const average = pastMonths.reduce((a, b) => a + b, 0) / pastMonths.length;
-  const need = average * 2;
+  const need = (pastMonths.reduce((a, b) => a + b, 0) / pastMonths.length) * 2;
   return { summer: false, need, perMonth: need / monthsLeft, monthsLeft };
 }
 
@@ -960,14 +940,11 @@ function renderGoals() {
   $("#goalsList").innerHTML = goals.map((g, i) => {
     const pct = Math.min((g.saved / g.target) * 100, 100);
     const remaining = Math.max(g.target - g.saved, 0);
-    let info = `encore ${fmt(remaining)}`;
-    if (remaining === 0) {
-      info = "Objectif atteint 🎉";
-    } else if (g.monthly > 0) {
+    let info = remaining === 0 ? "Objectif atteint 🎉" : `encore ${fmt(remaining)}`;
+    if (remaining > 0 && g.monthly > 0) {
       // date estimée = aujourd'hui + nombre de mois nécessaires
-      const months = Math.ceil(remaining / g.monthly);
-      const when = shift(new Date(), "month", months).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-      info += ` · vers ${when}`;
+      const when = shift(new Date(), "month", Math.ceil(remaining / g.monthly));
+      info += ` · vers ${when.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`;
     }
     return `<li class="goal" data-goal="${g.id}" style="--i:${i}">
       <div class="goal-top">
@@ -1095,20 +1072,7 @@ function drawSimChart(points, animated) {
 
   function draw(p) {
     ctx.clearRect(0, 0, w, h);
-    ctx.font = "11px -apple-system, Inter, sans-serif";
-
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    for (let i = 0; i <= 4; i++) {
-      const v = (max / 4) * i, y = yOf(v);
-      ctx.strokeStyle = "rgba(120,120,128,.15)";
-      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-      ctx.fillStyle = muted;
-      ctx.fillText(axisLabel(v), padL - 8, y);
-    }
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+    drawGrid(ctx, { w, padL, padR, max, yOf, muted });
     points.forEach((pt, i) => {
       const x = padL + slot * i + (slot - bw) / 2;
       // les barres apparaissent les unes après les autres
@@ -1128,8 +1092,7 @@ function drawSimChart(points, animated) {
     });
   }
 
-  if (animated) animate("sim", draw, 1000);
-  else draw(1);
+  animate("sim", draw, 1000, animated);
 }
 
 /* ---- Coût en temps : une dépense traduite en heures de job / jours de bourse ---- */
@@ -1143,9 +1106,7 @@ function jobTime(amount) {
 }
 
 function bourseDays(amount) {
-  const b = getBourse();
-  if (!b) return null;
-  const days = amount / (b.amount / 30); // la bourse d'un mois couvre ~30 jours
+  const days = amount / (getBourse().amount / 30); // la bourse d'un mois couvre ~30 jours
   if (days < 1) return "moins d'1 jour de bourse";
   const txt = (Math.round(days * 10) / 10).toString().replace(".", ",");
   return `${txt} jour${days >= 2 ? "s" : ""} de bourse`;
@@ -1153,16 +1114,12 @@ function bourseDays(amount) {
 
 function updateTimeCost() {
   const amount = parseFloat($("#amount").value);
-  const el = $("#timeCost");
-  if (state.formType !== "expense" || !amount || amount <= 0) {
-    el.textContent = "";
-    return;
-  }
   const parts = [];
-  if (settings.hourly > 0) parts.push(`${jobTime(amount)} de job`);
-  const days = bourseDays(amount);
-  if (days) parts.push(days);
-  el.textContent = parts.length ? "≈ " + parts.join(" · ") : "";
+  if (state.formType === "expense" && amount > 0) {
+    if (settings.hourly > 0) parts.push(`${jobTime(amount)} de job`);
+    if (getBourse()) parts.push(bourseDays(amount));
+  }
+  $("#timeCost").textContent = parts.length ? "≈ " + parts.join(" · ") : "";
 }
 
 /* ---- Réglages ---- */
@@ -1388,33 +1345,89 @@ async function initBackup() {
 }
 
 
-/* ---------- 8. Événements ---------- */
+/* ---------- 8. Événements (clics, clavier...) ---------- */
 
+// --- Navigation : vue jour / mois / année et périodes
 function setView(view) {
   state.view = view;
   document.querySelectorAll("#viewSwitch button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   movePill($("#viewSwitch"));
   render();
 }
-
-$("#viewSwitch").addEventListener("click", (e) => {
-  if (e.target.dataset.view) setView(e.target.dataset.view);
-});
-
+$("#viewSwitch").addEventListener("click", (e) => { if (e.target.dataset.view) setView(e.target.dataset.view); });
 $("#prevBtn").onclick = () => { state.cursor = shift(state.cursor, state.view, -1); render(); };
 $("#nextBtn").onclick = () => { state.cursor = shift(state.cursor, state.view, 1); render(); };
 $("#todayBtn").onclick = () => { state.cursor = new Date(); render(); };
 
-$("#addBtn").onclick = () => openForm();
-$("#amount").addEventListener("input", updateTimeCost);
+// --- Barre du haut
+$("#themeBtn").onclick = () => {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  render(false); // on redessine les graphiques avec les nouvelles couleurs
+};
+$("#privacyBtn").onclick = () => applyPrivacy(!document.body.classList.contains("privacy"));
+$("#settingsBtn").onclick = () => { openSettings(); updateBackupUI(); };
 
-// Fermer une fenêtre : bouton "Annuler" ou clic à côté
+// --- Fenêtres : "Annuler" ou clic à côté pour fermer
 document.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closeForm));
 document.querySelectorAll(".backdrop").forEach((b) =>
   b.addEventListener("click", (e) => { if (e.target === b) closeForm(); })
 );
 
-// Objectifs
+// --- Formulaire d'opération
+$("#addBtn").onclick = () => openForm();
+$("#txForm").addEventListener("submit", submitForm);
+$("#amount").addEventListener("input", updateTimeCost);
+$("#recurring").addEventListener("change", (e) => $("#recurHint").classList.toggle("show", e.target.checked));
+$("#typeSwitch").addEventListener("click", (e) => { if (e.target.dataset.type) setFormType(e.target.dataset.type); });
+$("#catGrid").addEventListener("click", (e) => {
+  const btn = e.target.closest(".cat-btn");
+  if (!btn) return;
+  state.formCat = btn.dataset.cat;
+  renderCatGrid();
+});
+
+// --- Liste des opérations : ✕ = supprimer, "Masquer", clic ailleurs = modifier
+$("#txList").addEventListener("click", (e) => {
+  const li = e.target.closest(".tx");
+  if (!li) return;
+  if (e.target.closest(".tx-del")) deleteTransaction(li.dataset.id, li);
+  else if (e.target.closest(".tx-hide")) toggleHidden(li.dataset.id);
+  else openForm(li.dataset.id);
+});
+$("#filterChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  state.filter = chip.dataset.filter;
+  render(false);
+});
+$("#search").addEventListener("input", (e) => {
+  state.search = e.target.value;
+  renderList(periodItems());
+});
+$("#demoBtn").onclick = loadDemo;
+
+// --- Cartes du haut : un clic filtre la liste des opérations
+$(".kpis").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-kpi]");
+  if (!card) return;
+  state.filter = card.dataset.kpi;
+  render(false);
+  $("#txList").closest(".card").scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
+// --- Récurrents : "Arrêter", "Masquer", clic ailleurs = modifier
+$("#subsList").addEventListener("click", (e) => {
+  if (e.target.dataset.stop) return stopRecurring(e.target.dataset.stop);
+  if (e.target.dataset.hide) return toggleHidden(e.target.dataset.hide);
+  const li = e.target.closest(".sub");
+  if (li) openForm(li.dataset.id);
+});
+
+// --- Graphique : info-bulle au survol
+$("#lineChart").addEventListener("mousemove", handleChartHover);
+$("#lineChart").addEventListener("mouseleave", () => $("#tooltip").classList.remove("show"));
+
+// --- Objectifs
 $("#addGoalBtn").onclick = () => openGoalForm();
 $("#goalForm").addEventListener("submit", submitGoal);
 $("#goalsList").addEventListener("click", (e) => {
@@ -1435,19 +1448,7 @@ $("#goalDelete").onclick = () => {
   toast("Objectif supprimé");
 };
 
-// Réglages
-$("#privacyBtn").onclick = () => applyPrivacy(!document.body.classList.contains("privacy"));
-$("#settingsBtn").onclick = () => { openSettings(); updateBackupUI(); };
-$("#backupChoose").onclick = chooseBackupFolder;
-$("#backupReconnect").onclick = reconnectBackup;
-$("#backupRestore").onclick = restoreLatest;
-$("#backupForget").onclick = forgetBackupFolder;
-
-// Astuce sous "Chaque mois" dans le formulaire
-$("#recurring").addEventListener("change", (e) => $("#recurHint").classList.toggle("show", e.target.checked));
-$("#settingsForm").addEventListener("submit", submitSettings);
-
-// Simulateur : on recalcule à chaque changement
+// --- Simulateur : on recalcule à chaque changement
 $("#simMonthly").addEventListener("input", (e) => {
   e.target.dataset.touched = "1"; // l'utilisateur a choisi sa valeur, on ne la remplace plus
   renderSimulator(false);
@@ -1455,7 +1456,7 @@ $("#simMonthly").addEventListener("input", (e) => {
 $("#simRate").addEventListener("input", () => renderSimulator(false));
 $("#simYears").addEventListener("input", () => renderSimulator(false));
 
-// Le graphique du simulateur s'anime quand on arrive dessus en scrollant
+// le graphique du simulateur s'anime quand on arrive dessus en scrollant
 new IntersectionObserver((entries, observer) => {
   if (entries[0].isIntersecting) {
     renderSimulator(true);
@@ -1463,84 +1464,13 @@ new IntersectionObserver((entries, observer) => {
   }
 }, { threshold: 0.3 }).observe($(".sim-card"));
 
-// Logo : on relance l'animation des immeubles au survol.
-// (une animation CSS terminée ne se rejoue pas toute seule,
-//  donc on l'enlève puis on la remet)
-$(".brand").addEventListener("mouseenter", () => {
-  document.querySelectorAll(".logo .bld, .logo .sun").forEach((el) => {
-    el.style.animation = "none";
-    el.getBoundingClientRect(); // force le navigateur à appliquer le "none"
-    el.style.animation = "";
-  });
-});
-$("#txForm").addEventListener("submit", submitForm);
+// --- Réglages, sauvegarde, export / import
+$("#settingsForm").addEventListener("submit", submitSettings);
+$("#backupChoose").onclick = chooseBackupFolder;
+$("#backupReconnect").onclick = reconnectBackup;
+$("#backupRestore").onclick = restoreLatest;
+$("#backupForget").onclick = forgetBackupFolder;
 
-$("#typeSwitch").addEventListener("click", (e) => {
-  if (e.target.dataset.type) setFormType(e.target.dataset.type);
-});
-$("#catGrid").addEventListener("click", (e) => {
-  const btn = e.target.closest(".cat-btn");
-  if (!btn) return;
-  state.formCat = btn.dataset.cat;
-  renderCatGrid();
-});
-
-// Liste : clic sur la croix = supprimer, clic ailleurs = modifier
-$("#txList").addEventListener("click", (e) => {
-  const li = e.target.closest(".tx");
-  if (!li) return;
-  if (e.target.closest(".tx-del")) deleteTransaction(li.dataset.id, li);
-  else if (e.target.closest(".tx-hide")) toggleHidden(li.dataset.id);
-  else openForm(li.dataset.id);
-});
-
-$("#filterChips").addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  state.filter = chip.dataset.filter;
-  render(false);
-});
-
-$("#search").addEventListener("input", (e) => {
-  state.search = e.target.value;
-  renderList(periodItems());
-});
-
-// Récurrents : "Arrêter" = stopper, clic ailleurs sur la ligne = modifier
-$("#subsList").addEventListener("click", (e) => {
-  if (e.target.dataset.stop) return stopRecurring(e.target.dataset.stop);
-  if (e.target.dataset.hide) return toggleHidden(e.target.dataset.hide);
-  const li = e.target.closest(".sub");
-  if (li) openForm(li.dataset.id);
-});
-
-// Cartes du haut : un clic filtre la liste des opérations
-$(".kpis").addEventListener("click", (e) => {
-  const card = e.target.closest("[data-kpi]");
-  if (!card) return;
-  state.filter = card.dataset.kpi;
-  render(false);
-  $("#txList").closest(".card").scrollIntoView({ behavior: "smooth", block: "center" });
-});
-
-$("#demoBtn").onclick = loadDemo;
-
-// Info-bulle du graphique
-$("#lineChart").addEventListener("mousemove", handleChartHover);
-$("#lineChart").addEventListener("mouseleave", () => $("#tooltip").classList.remove("show"));
-
-// Thème clair / sombre (mémorisé)
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  $("#themeBtn").textContent = theme === "dark" ? "☀️" : "🌙";
-  localStorage.setItem("financity_theme", theme);
-}
-$("#themeBtn").onclick = () => {
-  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-  render(false); // on redessine les graphiques avec les nouvelles couleurs
-};
-
-// Export / import d'une sauvegarde JSON
 $("#exportBtn").onclick = () => {
   const blob = new Blob([JSON.stringify(backupData(), null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -1576,16 +1506,27 @@ $("#resetBtn").onclick = () => {
   toast("Tout a été effacé");
 };
 
-// Raccourcis clavier : ← → pour changer de période, Échap pour fermer
+// --- Clavier : ← → pour changer de période, N = nouvelle opération, Échap pour fermer
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeForm();
   if (e.target.tagName === "INPUT" || document.querySelector(".backdrop.open")) return;
   if (e.key === "ArrowLeft") $("#prevBtn").click();
   if (e.key === "ArrowRight") $("#nextBtn").click();
-  if (e.key === "n" || e.key === "N") { e.preventDefault(); openForm(); } // N = nouvelle opération
+  if (e.key === "n" || e.key === "N") { e.preventDefault(); openForm(); }
 });
 
-// Lumière qui suit la souris sur les cartes (variables CSS --mx / --my)
+// --- Effets visuels
+// Logo : une animation CSS terminée ne se rejoue pas toute seule,
+// donc au survol on l'enlève puis on la remet.
+$(".brand").addEventListener("mouseenter", () => {
+  document.querySelectorAll(".logo .bld, .logo .sun").forEach((el) => {
+    el.style.animation = "none";
+    el.getBoundingClientRect(); // force le navigateur à appliquer le "none"
+    el.style.animation = "";
+  });
+});
+
+// lumière qui suit la souris sur les cartes (variables CSS --mx / --my)
 document.addEventListener("pointermove", (e) => {
   const card = e.target.closest && e.target.closest(".card");
   if (!card) return;
@@ -1594,7 +1535,7 @@ document.addEventListener("pointermove", (e) => {
   card.style.setProperty("--my", `${e.clientY - r.top}px`);
 });
 
-// Quand on redimensionne la fenêtre, on redessine les graphiques (sans animation)
+// on redessine les graphiques quand la fenêtre change de taille
 let resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
@@ -1607,8 +1548,7 @@ window.addEventListener("resize", () => {
 
 /* ---------- Démarrage ---------- */
 
-// mode sombre par défaut (sauf si l'utilisateur a choisi le clair avant)
-applyTheme(localStorage.getItem("financity_theme") || "dark");
+applyTheme(localStorage.getItem("financity_theme") || "dark"); // sombre par défaut
 movePill($("#viewSwitch"));
 applyPrivacy(localStorage.getItem("financity_privacy") === "1");
 render();

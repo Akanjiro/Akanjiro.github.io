@@ -144,7 +144,6 @@ button { cursor: pointer; border: none; background: none; }
 
 .top-actions { display: flex; align-items: center; gap: 10px; }
 
-
 /* ---------- Contrôle segmenté (Jour / Mois / Année) ---------- */
 .segmented {
   position: relative;
@@ -267,15 +266,18 @@ main { max-width: 1200px; margin: 0 auto; padding: 8px 16px 120px; }
 .chart-wrap { position: relative; flex: 1; min-height: 260px; }
 .chart-wrap canvas, .donut-wrap canvas { width: 100%; height: 100%; display: block; }
 
-.tooltip {
-  position: absolute; top: 0; left: 0;
-  padding: 8px 12px;
-  border-radius: 12px;
+/* verre plus opaque pour l'info-bulle et la notification */
+.tooltip, .toast {
   background: var(--glass-strong);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--stroke);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .14);
+}
+.tooltip {
+  position: absolute; top: 0; left: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
   font-size: 13px; line-height: 1.5;
   white-space: nowrap;
   pointer-events: none;
@@ -474,21 +476,23 @@ main { max-width: 1200px; margin: 0 auto; padding: 8px 16px 120px; }
   border: none; outline: none; background: none;
 }
 .amount-field span { width: 45%; font-size: 28px; font-weight: 600; color: var(--muted); }
-/* enlève les petites flèches du champ nombre */
+/* enlève les petites flèches du champ montant */
 .amount-field input::-webkit-outer-spin-button,
 .amount-field input::-webkit-inner-spin-button { -webkit-appearance: none; }
 .amount-field input[type=number] { -moz-appearance: textfield; }
 
-.sheet input[type=text], .sheet input[type=date] {
+/* champs texte, date et nombres des fenêtres */
+.sheet input[type=text], .sheet input[type=date], .fields input {
   width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid transparent;
   background: var(--field);
   outline: none;
+  color: var(--text);
   transition: border .2s, box-shadow .2s;
 }
-.sheet input[type=text]:focus, .sheet input[type=date]:focus {
+.sheet input[type=text]:focus, .sheet input[type=date]:focus, .fields input:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 4px rgba(10, 132, 255, .15);
 }
@@ -544,11 +548,6 @@ main { max-width: 1200px; margin: 0 auto; padding: 8px 16px 120px; }
   display: flex; align-items: center; gap: 14px;
   padding: 12px 18px;
   border-radius: 99px;
-  background: var(--glass-strong);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--stroke);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .15);
   font-size: 14px; font-weight: 500;
   opacity: 0;
   transform: translate(-50%, 20px) scale(.95);
@@ -634,16 +633,6 @@ input[type=range] { width: 100%; accent-color: var(--blue); cursor: pointer; }
 
 /* ---------- Champs des fenêtres objectif / réglages ---------- */
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-.fields input {
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: var(--field);
-  outline: none;
-  color: var(--text);
-  transition: border .2s, box-shadow .2s;
-}
-.fields input:focus { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(10, 132, 255, .15); }
 .emoji-pick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .emoji-pick button { width: 42px; height: 42px; border-radius: 12px; background: var(--field); font-size: 20px; transition: transform .3s var(--ease), box-shadow .2s; }
 .emoji-pick button.active { box-shadow: inset 0 0 0 2px var(--blue); transform: scale(1.1); }
