@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financity — Gestion de budget étudiant</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- icône de l'onglet (le même logo, écrit directement dans l'adresse) -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%231c1c2e'/%3E%3Ccircle cx='11' cy='11' r='3.5' fill='%23ff9f0a'/%3E%3Crect x='6' y='25' width='5.5' height='9' rx='1.2' fill='%235e5ce6'/%3E%3Crect x='13.5' y='20' width='5.5' height='14' rx='1.2' fill='%236e7cf5'/%3E%3Crect x='21' y='15' width='5.5' height='19' rx='1.2' fill='%230a84ff'/%3E%3Crect x='28.5' y='9' width='5.5' height='25' rx='1.2' fill='%2330b0f0'/%3E%3C/svg%3E">
+</head>
+<body>
+
+  <!-- Fond animé : des bulles de couleur floues qui bougent derrière le verre -->
+  <div class="bg">
+    <span class="blob b1"></span>
+    <span class="blob b2"></span>
+    <span class="blob b3"></span>
+  </div>
+
+  <!-- ===== Barre du haut ===== -->
+  <header class="topbar glass">
+    <div class="brand">
+      <!-- Logo "ville en barres" : 4 immeubles = 4 barres de graphique qui montent -->
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+        <rect width="40" height="40" rx="10" fill="#1c1c2e"/>
+        <circle class="sun" cx="11" cy="11" r="3.5" fill="#ff9f0a"/>
+        <rect class="bld" x="6"    y="25" width="5.5" height="9"  rx="1.2" fill="#5e5ce6"/>
+        <rect class="bld" x="13.5" y="20" width="5.5" height="14" rx="1.2" fill="#6e7cf5"/>
+        <rect class="bld" x="21"   y="15" width="5.5" height="19" rx="1.2" fill="#0a84ff"/>
+        <rect class="bld" x="28.5" y="9"  width="5.5" height="25" rx="1.2" fill="#30b0f0"/>
+      </svg>
+      <span>Financity</span>
+    </div>
+
+    <!-- Choix de la vue : jour / mois / année -->
+    <div class="segmented" id="viewSwitch">
+      <span class="seg-pill"></span>
+      <button data-view="day">Jour</button>
+      <button data-view="month" class="active">Mois</button>
+      <button data-view="year">Année</button>
+    </div>
+
+    <div class="top-actions">
+      <button class="icon-btn" id="settingsBtn" title="Réglages">⚙️</button>
+      <button class="icon-btn" id="themeBtn" title="Changer de thème">☀️</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===== Période affichée ===== -->
+    <section class="period">
+      <button class="icon-btn" id="prevBtn" title="Période précédente">‹</button>
+      <div class="period-text">
+        <h1 id="periodLabel">—</h1>
+        <p id="insight"></p>
+      </div>
+      <button class="icon-btn" id="nextBtn" title="Période suivante">›</button>
+      <button class="pill-btn" id="todayBtn">Aujourd'hui</button>
+    </section>
+
+    <!-- ===== Chiffres clés ===== -->
+    <section class="kpis">
+      <article class="card glass kpi" data-kpi="all" title="Voir dans les opérations" style="--d:0">
+        <span class="kpi-label">Solde</span>
+        <strong class="kpi-value" id="kpiBalance">0 €</strong>
+        <span class="delta" id="dBalance"></span>
+      </article>
+      <article class="card glass kpi" data-kpi="income" title="Voir dans les opérations" style="--d:1">
+        <span class="kpi-label">Revenus</span>
+        <strong class="kpi-value" id="kpiIncome">0 €</strong>
+        <span class="delta" id="dIncome"></span>
+      </article>
+      <article class="card glass kpi" data-kpi="expense" title="Voir dans les opérations" style="--d:2">
+        <span class="kpi-label">Dépenses</span>
+        <strong class="kpi-value" id="kpiExpense">0 €</strong>
+        <span class="delta" id="dExpense"></span>
+      </article>
+      <article class="card glass kpi" data-kpi="investissement" title="Voir dans les opérations" style="--d:3">
+        <span class="kpi-label">Investi</span>
+        <strong class="kpi-value" id="kpiInvest">0 €</strong>
+        <span class="delta" id="dInvest"></span>
+      </article>
+    </section>
+
+    <!-- ===== Spécial étudiant : reste à vivre + objectifs ===== -->
+    <section class="grid even">
+      <article class="card glass" style="--d:4">
+        <div class="card-head">
+          <h2>Reste à vivre</h2>
+          <span class="muted" id="budgetUntil"></span>
+        </div>
+        <div class="budget-main">
+          <strong id="budgetPerDay">0 €</strong><span>/ jour</span>
+        </div>
+        <p class="budget-sub" id="budgetSub"></p>
+        <div class="cycle-bar"><i id="cycleFill"></i></div>
+        <div class="cycle-labels"><span id="cycleStart"></span><span id="cycleEnd"></span></div>
+        <p class="budget-note" id="budgetNote"></p>
+        <div class="summer" id="summerBox"></div>
+      </article>
+
+      <article class="card glass" style="--d:5">
+        <div class="card-head">
+          <h2>Objectifs</h2>
+          <button class="pill-btn small" id="addGoalBtn">+ Objectif</button>
+        </div>
+        <ul class="goals" id="goalsList"></ul>
+      </article>
+    </section>
+
+    <!-- ===== Graphiques ===== -->
+    <section class="grid">
+      <article class="card glass chart-card" style="--d:4">
+        <div class="card-head">
+          <h2>Évolution</h2>
+          <div class="legend">
+            <span><i class="dot" style="background:var(--green)"></i>Revenus</span>
+            <span><i class="dot" style="background:var(--red)"></i>Dépenses</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="lineChart"></canvas>
+          <div class="tooltip" id="tooltip"></div>
+        </div>
+      </article>
+
+      <article class="card glass" style="--d:5">
+        <div class="card-head"><h2>Répartition</h2></div>
+        <div class="donut-wrap">
+          <canvas id="donutChart"></canvas>
+          <div class="donut-center">
+            <span>Dépenses</span>
+            <strong id="donutTotal">0 €</strong>
+          </div>
+        </div>
+        <ul class="cat-legend" id="catLegend"></ul>
+      </article>
+    </section>
+
+    <!-- ===== Transactions + récurrents ===== -->
+    <section class="grid">
+      <article class="card glass" style="--d:6">
+        <div class="card-head">
+          <h2>Opérations</h2>
+          <input type="search" id="search" placeholder="Rechercher…">
+        </div>
+        <div class="chips" id="filterChips"></div>
+        <ul class="tx-list" id="txList"></ul>
+        <div class="empty" id="emptyState">
+          <p>Aucune opération sur cette période.</p>
+          <button class="pill-btn" id="demoBtn">Charger un exemple</button>
+        </div>
+      </article>
+
+      <article class="card glass" style="--d:7">
+        <div class="card-head">
+          <h2>Récurrents</h2>
+          <span class="muted" id="subsTotal"></span>
+        </div>
+        <ul class="subs-list" id="subsList"></ul>
+      </article>
+    </section>
+
+    <!-- ===== Simulateur d'investissement ===== -->
+    <section class="card glass sim-card" style="--d:8">
+      <div class="card-head">
+        <h2>Simulateur d'investissement</h2>
+        <span class="muted">Et si tu continuais à investir ?</span>
+      </div>
+      <div class="sim-body">
+        <div class="sim-controls">
+          <label>Chaque mois
+            <div class="input-unit"><input type="number" id="simMonthly" min="0" step="10"><span>€</span></div>
+          </label>
+          <label>Rendement moyen par an
+            <div class="input-unit"><input type="number" id="simRate" min="0" max="20" step="0.5" value="5"><span>%</span></div>
+          </label>
+          <label><span>Durée : <b id="simYearsVal">10 ans</b></span>
+            <input type="range" id="simYears" min="1" max="30" value="10">
+          </label>
+          <div class="sim-result">
+            <span>Dans <b id="simYearsTxt">10 ans</b>, tu aurais environ</span>
+            <strong id="simValue">0 €</strong>
+            <div class="sim-split">
+              <span><i class="dot" style="background:var(--blue)"></i>Versé <b id="simPaid"></b></span>
+              <span><i class="dot" style="background:var(--green)"></i>Intérêts <b id="simGain"></b></span>
+            </div>
+          </div>
+          <p class="sim-warn">Simulation avec un rendement constant : en vrai, les marchés montent et descendent, rien n'est garanti.
+            Départ : <b id="simStart"></b> déjà investis.</p>
+        </div>
+        <div class="sim-chart"><canvas id="simChart"></canvas></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <button class="link-btn" id="exportBtn">Exporter</button>
+      <label class="link-btn">Importer<input type="file" id="importInput" accept=".json" hidden></label>
+      <button class="link-btn danger" id="resetBtn">Tout effacer</button>
+    </footer>
+  </main>
+
+  <!-- Bouton flottant "+" -->
+  <button class="fab" id="addBtn" title="Ajouter une opération">+</button>
+
+  <!-- ===== Fenêtre d'ajout / modification ===== -->
+  <div class="backdrop" id="backdrop">
+    <form class="sheet glass" id="txForm" autocomplete="off">
+      <div class="grabber"></div>
+      <h2 id="formTitle">Nouvelle opération</h2>
+
+      <div class="segmented full" id="typeSwitch">
+        <span class="seg-pill"></span>
+        <button type="button" data-type="expense" class="active">Dépense</button>
+        <button type="button" data-type="income">Revenu</button>
+      </div>
+
+      <div class="amount-field">
+        <input type="number" id="amount" step="0.01" min="0.01" placeholder="0,00" required>
+        <span>€</span>
+      </div>
+      <p class="time-cost" id="timeCost"></p>
+
+      <input type="text" id="label" placeholder="Libellé (ex : Courses Super U)" maxlength="40" required>
+
+      <div class="cat-grid" id="catGrid"></div>
+
+      <div class="row">
+        <input type="date" id="date" required>
+        <label class="switch">
+          <input type="checkbox" id="recurring">
+          <span class="track"></span>
+          Chaque mois
+        </label>
+      </div>
+      <p class="form-hint" id="recurHint">💡 Mets la date du <b>dernier versement déjà passé</b> (ex : le 27 du mois dernier) pour qu'il compte dès maintenant. Les mois suivants se rajoutent tout seuls.</p>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Annuler</button>
+        <button type="submit" class="btn primary" id="submitBtn">Ajouter</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== Fenêtre objectif ===== -->
+  <div class="backdrop" id="goalBackdrop">
+    <form class="sheet glass" id="goalForm" autocomplete="off">
+      <div class="grabber"></div>
+      <h2 id="goalTitle">Nouvel objectif</h2>
+      <div class="emoji-pick" id="emojiPick"></div>
+      <input type="text" id="goalName" placeholder="Nom (ex : Billet Cayenne–Paris)" maxlength="40" required>
+      <div class="fields">
+        <label>Objectif (€)<input type="number" id="goalTarget" min="1" step="0.01" required></label>
+        <label>Déjà de côté (€)<input type="number" id="goalSaved" min="0" step="0.01"></label>
+        <label>Par mois (€)<input type="number" id="goalMonthly" min="0" step="0.01"></label>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger-text" id="goalDelete">Supprimer</button>
+        <button type="button" class="btn ghost" data-close>Annuler</button>
+        <button type="submit" class="btn primary">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== Fenêtre réglages ===== -->
+  <div class="backdrop" id="settingsBackdrop">
+    <form class="sheet glass" id="settingsForm" autocomplete="off">
+      <div class="grabber"></div>
+      <h2>Réglages</h2>
+      <div class="fields">
+        <label>Salaire de ton job étudiant (€ net / heure)<input type="number" id="setHourly" min="0" step="0.01"></label>
+      </div>
+      <label class="switch setting-row">
+        <input type="checkbox" id="setBourse10">
+        <span class="track"></span>
+        <span>Bourse versée sur 10 mois<small>pas de versement en juillet et août</small></span>
+      </label>
+      <p class="sheet-info">Ta bourse est détectée toute seule : c'est l'opération « Chaque mois » de catégorie 🎓 Bourse.</p>
+
+      <div class="backup-box">
+        <strong>💾 Sauvegarde automatique</strong>
+        <p id="backupStatus"></p>
+        <div class="backup-actions">
+          <button type="button" class="pill-btn small" id="backupChoose">Choisir le dossier</button>
+          <button type="button" class="pill-btn small" id="backupReconnect">Reconnecter</button>
+          <button type="button" class="pill-btn small" id="backupRestore">Restaurer la dernière</button>
+          <button type="button" class="pill-btn small danger-text" id="backupForget">Désactiver</button>
+        </div>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-close>Annuler</button>
+        <button type="submit" class="btn primary">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Petite notification en bas de l'écran -->
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
